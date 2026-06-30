@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gesture Light · hand-controlled lamp</title>
+<style>
+  :root{
+    --bg: #0b0e14;
+    --panel: #11151c;
+    --panel-border: #232938;
+    --text: #e7ecf2;
+    --text-dim: #6b7686;
+    --accent-cyan: #4fd8e8;
+    --c0: #2a2f3a; /* fist / off */
+    --c1: #ff5c5c; /* 1 finger */
+    --c2: #ff9f43; /* 2 fingers */
+    --c3: #ffd93d; /* 3 fingers */
+    --c4: #6bcb77; /* 4 fingers */
+    --c5: #ffffff; /* open palm / full bright */
+    --glow: var(--c0);
+    --glow-strength: 0.15;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    min-height: 100vh;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  h1 {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    margin: 0;
+    color: var(--text);
+  }
+
+  h1 span { color: var(--text-dim); font-weight: 500; }
+
+  .status-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--c0);
+    transition: background 0.3s ease;
+  }
+  .dot.live { background: var(--c4); box-shadow: 0 0 8px var(--c4); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+
+  .panel-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 12px;
+  }
+
+  /* sensor panel */
+  .sensor-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #05070a;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+  }
+
+  video, canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  video { transform: scaleX(-1); opacity: 0; }
+  canvas { transform: scaleX(-1); }
+
+  .start-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: #05070a;
+    z-index: 5;
+    text-align: center;
+    padding: 20px;
+  }
+
+  .start-overlay p {
+    color: var(--text-dim);
+    font-size: 12px;
+    max-width: 260px;
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  button#startBtn {
+    background: var(--accent-cyan);
+    color: #05070a;
+    border: none;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 12px 22px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  button#startBtn:hover { transform: translateY(-1px); }
+  button#startBtn:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 3px; }
+  button#startBtn:disabled { opacity: 0.5; cursor: progress; }
+
+  .error-msg {
+    color: var(--c1);
+    font-size: 11px;
+    max-width: 280px;
+    line-height: 1.5;
+  }
+
+  /* output panel: the light */
+  .light-stage {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(circle at center, color-mix(in srgb, var(--glow) calc(var(--glow-strength) * 100%), transparent) 0%, transparent 70%),
+      #05070a;
+    border-radius: 6px;
+    border: 1px solid var(--panel-border);
+    transition: background 0.25s ease;
+  }
+
+  .orb {
+    width: 38%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--glow);
+    box-shadow:
+      0 0 30px color-mix(in srgb, var(--glow) 90%, transparent),
+      0 0 70px color-mix(in srgb, var(--glow) calc(var(--glow-strength) * 140%), transparent),
+      0 0 130px color-mix(in srgb, var(--glow) calc(var(--glow-strength) * 90%), transparent);
+    transition: background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+  }
+
+  .orb.on { animation: breathe 2.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .orb.on { animation: none; } }
+
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.035); }
+  }
+
+  /* console / readout */
+  .console {
+    margin-top: 18px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 560px) { .console { grid-template-columns: 1fr; } }
+
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .legend {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    padding: 6px 10px;
+    border-radius: 20px;
+  }
+  .legend-swatch {
+    width: 9px; height: 9px; border-radius: 50%;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Gesture Light <span>· hand-controlled lamp</span></h1>
+    <div class="status-dot"><span class="dot" id="liveDot"></span><span id="liveLabel">idle</span></div>
+  </header>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-label">Sensor — camera feed</div>
+      <div class="sensor-stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div class="start-overlay" id="startOverlay">
+          <button id="startBtn">Start camera</button>
+          <p>Allow camera access, then hold one hand up in frame. Works best with good lighting and a plain background.</p>
+          <div class="error-msg" id="errorMsg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-label">Output — the light</div>
+      <div class="light-stage">
+        <div class="orb" id="orb"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="console">
+    <div class="stat">
+      <div class="stat-label">Fingers up</div>
+      <div class="stat-value" id="fingerCount">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Gesture</div>
+      <div class="stat-value" id="gestureName">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Light state</div>
+      <div class="stat-value" id="lightState">OFF</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="legend-swatch" style="background:#2a2f3a"></span> Fist = off</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#ff5c5c"></span> 1 finger = red</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#ff9f43"></span> 2 fingers = orange</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#ffd93d"></span> 3 fingers = yellow</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#6bcb77"></span> 4 fingers = green</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#ffffff"></span> Open palm = full bright</div>
+  </div>
+
+</div>
+
+<!-- MediaPipe Hands (loaded from jsdelivr; needs an internet connection) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+<script>
+(function () {
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('overlay');
+  const ctx = canvas.getContext('2d');
+  const startBtn = document.getElementById('startBtn');
+  const startOverlay = document.getElementById('startOverlay');
+  const errorMsg = document.getElementById('errorMsg');
+  const liveDot = document.getElementById('liveDot');
+  const liveLabel = document.getElementById('liveLabel');
+  const fingerCountEl = document.getElementById('fingerCount');
+  const gestureNameEl = document.getElementById('gestureName');
+  const lightStateEl = document.getElementById('lightState');
+  const orb = document.getElementById('orb');
+  const root = document.documentElement;
+
+  const COLORS = {
+    0: { var: '#2a2f3a', name: 'Fist', strength: 0.12 },
+    1: { var: '#ff5c5c', name: 'One finger', strength: 0.5 },
+    2: { var: '#ff9f43', name: 'Two fingers', strength: 0.6 },
+    3: { var: '#ffd93d', name: 'Three fingers', strength: 0.7 },
+    4: { var: '#6bcb77', name: 'Four fingers', strength: 0.85 },
+    5: { var: '#ffffff', name: 'Open palm', strength: 1.0 },
+  };
+
+  const TIP_IDS = [8, 12, 16, 20];
+  const PIP_IDS = [6, 10, 14, 18];
+
+  // Counts how many of the 5 fingers are extended from a single hand's 21 landmarks.
+  function countFingers(landmarks, handedness) {
+    let count = 0;
+
+    // Thumb: compare x of tip (4) vs the IP joint (3); direction flips with handedness
+    // because the feed is mirrored for a natural "looking in a mirror" view.
+    const thumbTip = landmarks[4];
+    const thumbIp = landmarks[3];
+    const thumbExtended = handedness === 'Right'
+      ? thumbTip.x < thumbIp.x
+      : thumbTip.x > thumbIp.x;
+    if (thumbExtended) count++;
+
+    // Other four fingers: extended if the tip is above (smaller y than) its PIP joint.
+    for (let i = 0; i < 4; i++) {
+      if (landmarks[TIP_IDS[i]].y < landmarks[PIP_IDS[i]].y) count++;
+    }
+    return count;
+  }
+
+  function setLight(fingerCount) {
+    const conf = COLORS[fingerCount] ?? COLORS[0];
+    root.style.setProperty('--glow', conf.var);
+    root.style.setProperty('--glow-strength', conf.strength);
+    fingerCountEl.textContent = fingerCount;
+    gestureNameEl.textContent = conf.name;
+    lightStateEl.textContent = fingerCount === 0 ? 'OFF' : 'ON';
+    orb.classList.toggle('on', fingerCount > 0);
+  }
+
+  function resizeCanvasToVideo() {
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+  }
+
+  function drawHand(landmarks) {
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (window.drawConnectors && window.HAND_CONNECTIONS) {
+      drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: '#4fd8e8', lineWidth: 3 });
+    }
+    if (window.drawLandmarks) {
+      drawLandmarks(ctx, landmarks, { color: '#ffffff', lineWidth: 1, radius: 3 });
+    }
+    ctx.restore();
+  }
+
+  function onResults(results) {
+    resizeCanvasToVideo();
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const landmarks = results.multiHandLandmarks[0];
+      const handedness = results.multiHandedness?.[0]?.label ?? 'Right';
+      drawHand(landmarks);
+      const count = countFingers(landmarks, handedness);
+      setLight(count);
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      setLight(0);
+      gestureNameEl.textContent = 'No hand detected';
+    }
+  }
+
+  async function start() {
+    startBtn.disabled = true;
+    errorMsg.textContent = '';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: 'user' },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+
+      const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      });
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6,
+      });
+      hands.onResults(onResults);
+
+      const camera = new Camera(video, {
+        onFrame: async () => { await hands.send({ image: video }); },
+        width: 640,
+        height: 480,
+      });
+      camera.start();
+
+      startOverlay.style.display = 'none';
+      liveDot.classList.add('live');
+      liveLabel.textContent = 'live';
+    } catch (err) {
+      console.error(err);
+      startBtn.disabled = false;
+      if (err.name === 'NotAllowedError') {
+        errorMsg.textContent = 'Camera permission was denied. Allow camera access in your browser settings and try again.';
+      } else if (err.name === 'NotFoundError') {
+        errorMsg.textContent = 'No camera was found on this device.';
+      } else {
+        errorMsg.textContent = 'Could not start the camera (' + err.message + '). If you opened this file directly, try serving it from a local server instead.';
+      }
+    }
+  }
+
+  startBtn.addEventListener('click', start);
+})();
+</script>
+</body>
+</html>
